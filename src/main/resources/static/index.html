@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SettleX &middot; Algorithmic Multi-Party Debt Optimization Engine</title>
+
+    <!-- All API calls in this file use relative paths (/api/v1/...) so the app works on any
+         port without rebuilding or reconfiguring the frontend. -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/vis-network@9.1.9/styles/vis-network.min.css">
+    <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        ink: {
+                            950: '#07090f',
+                            900: '#0b0f18',
+                            850: '#111725',
+                            800: '#161d2e',
+                            700: '#212b40',
+                            600: '#2e3a52',
+                        },
+                        creditor: '#22c55e',
+                        debtor: '#ef4444',
+                        accent: '#38bdf8',
+                    },
+                    fontFamily: {
+                        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+                    },
+                },
+            },
+        };
+    </script>
+    <style>
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: #0b0f18; }
+        ::-webkit-scrollbar-thumb { background: #2e3a52; border-radius: 6px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3d4d6b; }
+
+        body { background-image:
+            radial-gradient(ellipse 80% 50% at 20% -10%, rgba(56,189,248,.10), transparent),
+            radial-gradient(ellipse 60% 40% at 100% 0%, rgba(34,197,94,.07), transparent); }
+
+        .net-canvas { height: 520px; width: 100%; }
+        @media (min-width: 1280px) { .net-canvas { height: 620px; } }
+
+        .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5
+                      text-sm font-semibold transition-all duration-150 select-none; }
+        .btn-primary { @apply bg-accent text-ink-950 hover:bg-sky-300 active:scale-[.98]
+                              disabled:opacity-40 disabled:cursor-not-allowed; }
+        .btn-ghost { @apply border border-ink-600 bg-ink-800/60 text-slate-300
+                             hover:border-ink-600 hover:bg-ink-700 active:scale-[.98]
+                             disabled:opacity-40 disabled:cursor-not-allowed; }
+
+        .field { @apply w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-2.5
+                       text-sm text-slate-100 placeholder-slate-500 outline-none
+                       transition-colors focus:border-accent focus:ring-1 focus:ring-accent/40; }
+        label.lbl { @apply mb-1.5 block text-[11px] font-semibold uppercase tracking-wider
+                          text-slate-400; }
+
+        .strategy-btn { @apply flex-1 rounded-lg border border-ink-600 bg-ink-800 px-3 py-2.5
+                              text-left text-xs transition-all duration-150 hover:border-ink-600; }
+        .strategy-btn[data-active="true"] { @apply border-accent bg-accent/10 ring-1 ring-accent/40; }
+
+        .stat-tile { @apply rounded-xl border border-ink-700 bg-ink-850/70 p-4; }
+        .stat-label { @apply text-[10px] font-semibold uppercase tracking-widest text-slate-500; }
+        .stat-value { @apply mt-1.5 font-mono text-2xl font-bold tabular-nums; }
+
+        .tab-btn { @apply border-b-2 border-transparent px-3 py-2.5 text-xs font-semibold
+                           uppercase tracking-wider text-slate-500 transition-colors
+                           hover:text-slate-300; }
+        .tab-btn[data-active="true"] { @apply border-accent text-accent; }
+
+        .fade-in { animation: fadeIn .35s ease-out both; }
+        @keyframes fadeIn { from { opacity:0; transform: translateY(6px); }
+                            to   { opacity:1; transform: none; } }
+    </style>
+</head>
+
+<body class="min-h-screen bg-ink-950 text-slate-200 antialiased">
+
+<!-- ======================= HEADER ======================= -->
+<header class="sticky top-0 z-30 border-b border-ink-700 bg-ink-950/85 backdrop-blur-md">
+    <div class="mx-auto flex max-w-[1800px] items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
+        <div class="flex items-center gap-3">
+            <div class="grid h-9 w-9 place-items-center rounded-lg bg-gradient-to-br from-accent to-emerald-400
+                        font-mono text-lg font-black text-ink-950">S</div>
+            <div>
+                <h1 class="text-base font-bold leading-tight tracking-tight text-white">SettleX</h1>
+                <p class="text-[11px] leading-tight text-slate-500">
+                    Algorithmic Multi-Party Debt Optimization Engine
+                </p>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <span id="engineBadge"
+                  class="hidden rounded-full border border-ink-600 bg-ink-800 px-3 py-1.5
+                         font-mono text-[11px] text-slate-400 sm:inline-block">
+                port &middot; connecting
+            </span>
+            <button id="runBtn" class="btn btn-primary" onclick="runOptimization()">
+                <span id="runSpinner" class="hidden h-3.5 w-3.5 animate-spin rounded-full
+                                               border-2 border-ink-950 border-t-transparent"></span>
+                <span id="runLabel">Optimize</span>
+            </button>
+        </div>
+    </div>
+</header>
+
+<main class="mx-auto max-w-[1800px] px-4 py-6 sm:px-6">
+
+    <!-- ======================= ALERT ======================= -->
+    <div id="alert" class="mb-5 hidden rounded-xl border border-debtor/40 bg-debtor/10 p-4">
+        <div class="flex items-start gap-3">
+            <span class="mt-0.5 text-lg leading-none text-debtor">&#9888;</span>
+            <div class="min-w-0 flex-1">
+                <p id="alertTitle" class="text-sm font-bold text-red-300">Request failed</p>
+                <p id="alertMessage" class="mt-1 text-sm text-slate-300"></p>
+                <ul id="alertViolations" class="mt-2 space-y-1 text-xs text-slate-400"></ul>
+            </div>
+            <button onclick="hideAlert()" class="text-slate-500 transition-colors hover:text-slate-300">
+                &#10005;
+            </button>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+
+        <!-- ======================= SIDEBAR ======================= -->
+        <aside class="space-y-5">
+
+            <!-- Strategy -->
+            <section class="rounded-xl border border-ink-700 bg-ink-850/60 p-4">
+                <h2 class="mb-3 text-xs font-bold uppercase tracking-widest text-slate-400">
+                    Optimization Strategy
+                </h2>
+                <div class="flex gap-2">
+                    <button id="stratGreedy" class="strategy-btn" data-active="true"
+                            onclick="selectStrategy('GREEDY')">
+                        <div class="font-bold text-slate-100">Greedy Heuristic</div>
+                        <div class="mt-0.5 font-mono text-[10px] text-slate-500">O(N log N) &middot; max-heap</div>
+                    </button>
+                    <button id="stratOptimal" class="strategy-btn" data-active="false"
+                            onclick="selectStrategy('OPTIMAL_SUBSET')">
+                        <div class="font-bold text-slate-100">Optimal Subset</div>
+                        <div class="mt-0.5 font-mono text-[10px] text-slate-500">Bitmask DP &middot; N&le;16</div>
+                    </button>
+                </div>
+                <p id="strategyHint" class="mt-3 text-xs leading-relaxed text-slate-500">
+                    Largest debtor pays largest creditor. Always at most N&minus;1 transfers, but not
+                    guaranteed minimal.
+                </p>
+            </section>
+
+            <!-- Builder -->
+            <section class="rounded-xl border border-ink-700 bg-ink-850/60 p-4">
+                <h2 class="mb-3 text-xs font-bold uppercase tracking-widest text-slate-400">
+                    Transaction Builder
+                </h2>
+
+                <label class="lbl" for="payer">Payer (debtor)</label>
+                <input id="payer" class="field mb-3" placeholder="Ana" autocomplete="off">
+
+                <label class="lbl" for="payee">Payee (creditor)</label>
+                <input id="payee" class="field mb-3" placeholder="Ben" autocomplete="off">
+
+                <label class="lbl" for="amount">Amount</label>
+                <input id="amount" class="field mb-3" placeholder="100.00" inputmode="decimal"
+                       onkeydown="if(event.key==='Enter') addTransaction()">
+
+                <button class="btn btn-ghost w-full" onclick="addTransaction()">+ Add Obligation</button>
+
+                <hr class="my-4 border-ink-700">
+
+                <label class="lbl" for="sampleSelect">Load Sample Graph</label>
+                <select id="sampleSelect" class="field mb-3" onchange="onSampleSelected(this.value)">
+                    <option value="">-- choose a scenario --</option>
+                </select>
+                <p id="sampleHint" class="mb-3 hidden text-xs leading-relaxed text-slate-500"></p>
+
+                <div class="flex gap-2">
+                    <button class="btn btn-ghost flex-1" onclick="clearTransactions()">Clear</button>
+                    <button id="benchBtn" class="btn btn-ghost flex-1" onclick="runBenchmark()">
+                        Benchmark
+                    </button>
+                </div>
+            </section>
+
+            <!-- Ledger -->
+            <section class="rounded-xl border border-ink-700 bg-ink-850/60 p-4">
+                <div class="mb-3 flex items-center justify-between">
+                    <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">
+                        Raw Ledger
+                    </h2>
+                    <span id="ledgerCount"
+                          class="rounded-md bg-ink-700 px-2 py-0.5 font-mono text-[11px] text-slate-400">
+                        0
+                    </span>
+                </div>
+                <div id="ledgerList" class="max-h-64 space-y-1.5 overflow-y-auto pr-1"></div>
+            </section>
+        </aside>
+
+        <!-- ======================= MAIN ======================= -->
+        <div class="min-w-0 space-y-5">
+
+            <!-- Metrics -->
+            <section id="metricsCard"
+                     class="rounded-xl border border-ink-700 bg-ink-850/60 p-5 transition-opacity">
+                <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">
+                            Execution Metrics
+                        </h2>
+                        <p id="algorithmUsed" class="mt-1 font-mono text-xs text-accent">
+                            awaiting input
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span id="optimalBadge"
+                              class="hidden rounded-full border px-2.5 py-1 text-[10px] font-bold
+                                     uppercase tracking-wider"></span>
+                        <span id="fallbackBadge"
+                              class="hidden rounded-full border border-amber-500/40 bg-amber-500/10
+                                     px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider
+                                     text-amber-300"></span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+                    <div class="stat-tile">
+                        <div class="stat-label">Transactions Reduced</div>
+                        <div id="mReduced" class="stat-value text-emerald-400">&mdash;</div>
+                        <div id="mReducedSub" class="mt-1 font-mono text-[11px] text-slate-500">&mdash;</div>
+                    </div>
+                    <div class="stat-tile">
+                        <div class="stat-label">Volume Saved</div>
+                        <div id="mVolume" class="stat-value text-emerald-400">&mdash;</div>
+                        <div id="mVolumeSub" class="mt-1 font-mono text-[11px] text-slate-500">&mdash;</div>
+                    </div>
+                    <div class="stat-tile">
+                        <div class="stat-label">Exec Time</div>
+                        <div id="mTime" class="stat-value text-accent">&mdash;</div>
+                        <div class="mt-1 font-mono text-[11px] text-slate-500">microseconds</div>
+                    </div>
+                    <div class="stat-tile">
+                        <div class="stat-label">Participants</div>
+                        <div id="mParticipants" class="stat-value text-slate-100">&mdash;</div>
+                        <div id="mParticipantsSub" class="mt-1 font-mono text-[11px] text-slate-500">&mdash;</div>
+                    </div>
+                    <div class="stat-tile">
+                        <div class="stat-label">Zero-Sum Groups</div>
+                        <div id="mGroups" class="stat-value text-slate-100">&mdash;</div>
+                        <div id="mGroupsSub" class="mt-1 font-mono text-[11px] text-slate-500">&mdash;</div>
+                    </div>
+                    <div class="stat-tile">
+                        <div class="stat-label">Cash Flow After</div>
+                        <div id="mCash" class="stat-value text-slate-100">&mdash;</div>
+                        <div id="mCashSub" class="mt-1 font-mono text-[11px] text-slate-500">&mdash;</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Graphs -->
+            <section class="grid grid-cols-1 gap-5 2xl:grid-cols-2">
+                <div class="rounded-xl border border-ink-700 bg-ink-850/60 p-4">
+                    <div class="mb-3 flex items-center justify-between">
+                        <h2 class="text-xs font-bold uppercase tracking-widest text-debtor">
+                            Raw Cluttered Debt Graph
+                        </h2>
+                        <span id="rawEdgeCount"
+                              class="rounded-md bg-debtor/15 px-2 py-0.5 font-mono text-[11px]
+                                     text-red-300">0 edges</span>
+                    </div>
+                    <div id="rawCanvas" class="net-canvas rounded-lg bg-ink-900/60"></div>
+                </div>
+                <div class="rounded-xl border border-ink-700 bg-ink-850/60 p-4">
+                    <div class="mb-3 flex items-center justify-between">
+                        <h2 class="text-xs font-bold uppercase tracking-widest text-creditor">
+                            Optimized Settlement Graph
+                        </h2>
+                        <span id="optEdgeCount"
+                              class="rounded-md bg-creditor/15 px-2 py-0.5 font-mono text-[11px]
+                                     text-green-300">0 edges</span>
+                    </div>
+                    <div id="optCanvas" class="net-canvas rounded-lg bg-ink-900/60"></div>
+                </div>
+            </section>
+
+            <!-- Receipt -->
+            <section class="rounded-xl border border-ink-700 bg-ink-850/60 p-5">
+                <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">
+                        Settlement Receipt Checklist
+                    </h2>
+                    <div class="flex items-center gap-2">
+                        <button class="btn btn-ghost" onclick="toggleReceiptExpand()">Expand all</button>
+                        <button id="copyBtn" class="btn btn-primary" onclick="copyPlan()">
+                            <span id="copyLabel">Copy Payment Plan</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mb-4 flex border-b border-ink-700">
+                    <button class="tab-btn" data-tab="receipt" data-active="true"
+                            onclick="switchTab('receipt', this)">Checklist</button>
+                    <button class="tab-btn" data-tab="net" data-active="false"
+                            onclick="switchTab('net', this)">Net Positions</button>
+                    <button class="tab-btn" data-tab="bench" data-active="false"
+                            onclick="switchTab('bench', this)">Benchmark</button>
+                </div>
+
+                <div id="tab-receipt"><div id="receiptList"
+                    class="space-y-2"></div></div>
+                <div id="tab-net" class="hidden"><div id="netTable" class="overflow-x-auto"></div></div>
+                <div id="tab-bench" class="hidden"><div id="benchPanel" class="space-y-4"></div></div>
+            </section>
+        </div>
+    </div>
+
+    <footer class="mt-8 border-t border-ink-700 pt-5 text-center text-[11px] leading-relaxed text-slate-600">
+        SettleX &middot; all monetary arithmetic is exact <span class="font-mono">BigDecimal</span>
+        with <span class="font-mono">RoundingMode.HALF_EVEN</span> &middot;
+        optimized cash flow never exceeds the original ledger.
+    </footer>
+</main>
+
+<script>
+'use strict';
+
+/*
+ * SettleX dashboard.
+ *
+ * Every API call uses a relative path beginning with /api/v1 so the client keeps working
+ * unchanged if the server moves to another port, sits behind a reverse proxy, or is
+ * mounted under a context path. No origin, hostname or port is ever hard-coded here.
+ */
+const API = {
+    optimize: '/api/v1/settlements/optimize',
+    benchmark: '/api/v1/settlements/benchmark',
+    samples:   '/api/v1/settlements/samples',
+};
+
+const STRATEGY_HINTS = {
+    GREEDY: 'Largest debtor pays largest creditor. Always at most N\u22121 transfers, but not guaranteed minimal.',
+    OPTIMAL_SUBSET:
+        'Finds the maximum number of disjoint zero-sum groups via bitmask DP, then settles each ' +
+        'island independently to attain the provable minimum of N\u2212k transfers.',
+};
+
+const state = {
+    transactions: [],
+    strategy: 'GREEDY',
+    plan: null,
+    networks: { raw: null, opt: null },
+};
+
+/* ============================ helpers ============================ */
+
+const $ = (id) => document.getElementById(id);
+
+function esc(value) {
+    return String(value).replace(/[&<>"']/g, (c) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+}
+
+function money(value) {
+    const n = Number(value ?? 0);
+    const sign = n < 0 ? '-' : '';
+    return sign + Math.abs(n).toLocaleString('en-US', {
+        minimumFractionDigits: 2, maximumFractionDigits: 2,
+    });
+}
+
+function hideAlert() { $('alert').classList.add('hidden'); }
+
+function showAlert(title, message, violations) {
+    $('alertTitle').textContent = title;
+    $('alertMessage').textContent = message;
+    const list = $('alertViolations');
+    list.innerHTML = '';
+    (violations || []).forEach((v) => {
+        const li = document.createElement('li');
+        li.className = 'font-mono';
+        li.textContent = `${v.field}: ${v.message}` + (v.rejected != null ? ` (got ${v.rejected})` : '');
+        list.appendChild(li);
+    });
+    $('alert').classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/**
+ * POSTs JSON to a relative endpoint and normalizes the error envelope into a thrown Error
+ * carrying the field-level violations the GlobalExceptionHandler produced.
+ */
+async function postJson(url, body) {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(body),
+    });
+
+    const text = await response.text();
+    let payload = null;
+    try { payload = text ? JSON.parse(text) : null; } catch (_) { /* non-JSON body */ }
+
+    if (!response.ok) {
+        const error = new Error(
+            (payload && payload.message) || `Request failed with HTTP ${response.status}`);
+        error.status = response.status;
+        error.code = (payload && payload.code) || 'HTTP_' + response.status;
+        error.violations = (payload && payload.violations) || [];
+        throw error;
+    }
+    return payload;
+}
+
+async function getJson(url) {
+    const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!response.ok) throw new Error(`GET ${url} failed with HTTP ${response.status}`);
+    return response.json();
+}
+
+function setBusy(busy) {
+    $('runSpinner').classList.toggle('hidden', !busy);
+    $('runLabel').textContent = busy ? 'Optimizing\u2026' : 'Optimize';
+    $('runBtn').disabled = busy;
+    $('benchBtn').disabled = busy;
+    $('metricsCard').style.opacity = busy ? '0.55' : '1';
+}
+
+/* ============================ builder ============================ */
+
+function addTransaction() {
+    const payer = $('payer').value.trim();
+    const payee = $('payee').value.trim();
+    const raw = $('amount').value.trim();
+
+    if (!payer || !payee || raw === '') {
+        showAlert('Incomplete obligation',
+            'A payer, a payee and an amount are all required.', []);
+        return;
+    }
+
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0) {
+        showAlert('Invalid amount',
+            `"${raw}" is not a positive monetary amount.`, []);
+        return;
+    }
+
+    state.transactions.push({ debtor: payer, creditor: payee, amount });
+    $('amount').value = '';
+    hideAlert();
+    renderLedger();
+    drawRaw();
+}
+
+function removeTransaction(index) {
+    state.transactions.splice(index, 1);
+    hideAlert();
+    renderLedger();
+    drawRaw();
+}
+
+function clearTransactions() {
+    state.transactions = [];
+    state.plan = null;
+    hideAlert();
+    renderLedger();
+    renderReceipt();
+    renderNetTable();
+    drawRaw();
+    drawOptimized({ settlements: [], netBalances: {} });
+    resetMetrics();
+}
+
+function renderLedger() {
+    const list = $('ledgerList');
+    $('ledgerCount').textContent = state.transactions.length;
+
+    if (state.transactions.length === 0) {
+        list.innerHTML =
+            '<p class="rounded-lg border border-dashed border-ink-600 px-3 py-6 text-center ' +
+            'text-xs text-slate-500">No obligations yet. Add one above or load a sample graph.</p>';
+        return;
+    }
+
+    list.innerHTML = state.transactions.map((t, i) => `
+        <div class="group flex items-center justify-between gap-2 rounded-lg border border-ink-700
+                    bg-ink-900/70 px-3 py-2 transition-colors hover:border-ink-600">
+            <div class="min-w-0 flex-1">
+                <div class="truncate font-mono text-xs text-slate-300">
+                    <span class="text-red-400">${esc(t.debtor)}</span>
+                    <span class="text-slate-600">&rarr;</span>
+                    <span class="text-green-400">${esc(t.creditor)}</span>
+                </div>
+                <div class="font-mono text-[11px] text-slate-500">${money(t.amount)}</div>
+            </div>
+            <button onclick="removeTransaction(${i})"
+                    class="shrink-0 rounded p-1 text-slate-600 transition-colors
+                           hover:bg-debtor/15 hover:text-red-400"
+                    title="Remove obligation">&times;</button>
+        </div>`).join('');
+}
+
+function selectStrategy(strategy) {
+    state.strategy = strategy;
+    $('stratGreedy').dataset.active = String(strategy === 'GREEDY');
+    $('stratOptimal').dataset.active = String(strategy === 'OPTIMAL_SUBSET');
+    $('strategyHint').textContent = STRATEGY_HINTS[strategy];
+}
+
+/* ============================ samples ============================ */
+
+function onSampleSelected(id) {
+    if (!id) {
+        $('sampleHint').classList.add('hidden');
+        return;
+    }
+
+    // Pull the full sample payload through the benchmark-free samples cache built at load time.
+    const sample = state.sampleCache?.find((s) => s.id === id);
+    if (!sample) return;
+
+    state.transactions = sample.transactions.map((t) => ({
+        debtor: t.debtor, creditor: t.creditor, amount: Number(t.amount),
+    }));
+    selectStrategy(sample.suggestedStrategy);
+    hideAlert();
+
+    const hint = $('sampleHint');
+    hint.classList.remove('hidden');
+    hint.innerHTML = `<span class="text-slate-400">${esc(sample.description)}</span><br><br>
+        <span class="text-emerald-400/90">Expected:</span> ${esc(sample.expectedOutcome)}`;
+
+    renderLedger();
+    drawRaw();
+    runOptimization();
+}
+
+/* ============================ optimization ============================ */
+
+async function runOptimization() {
+    if (state.transactions.length === 0) {
+        showAlert('Nothing to optimize',
+            'Add at least one obligation or load a sample graph first.', []);
+        return;
+    }
+
+    setBusy(true);
+    try {
+        const plan = await postJson(API.optimize, {
+            strategy: state.strategy,
+            transactions: state.transactions,
+        });
+        state.plan = plan;
+        renderMetrics(plan);
+        drawOptimized(plan);
+        renderReceipt(plan);
+        renderNetTable(plan);
+        hideAlert();
+    } catch (error) {
+        showAlert('Optimization failed [' + (error.code || 'error') + ']',
+            error.message, error.violations);
+    } finally {
+        setBusy(false);
+    }
+}
+
+async function runBenchmark() {
+    if (state.transactions.length === 0) {
+        showAlert('Nothing to benchmark',
+            'Add at least one obligation or load a sample graph first.', []);
+        return;
+    }
+
+    setBusy(true);
+    switchTab('bench', document.querySelector('[data-tab="bench"]'));
+    $('benchPanel').innerHTML =
+        '<p class="py-6 text-center text-sm text-slate-500">Running both engines concurrently\u2026</p>';
+
+    try {
+        const result = await postJson(API.benchmark, {
+            strategy: state.strategy,
+            transactions: state.transactions,
+        });
+        renderBenchmark(result);
+    } catch (error) {
+        $('benchPanel').innerHTML =
+            `<p class="rounded-lg border border-debtor/40 bg-debtor/10 p-4 text-sm text-red-300">
+                ${esc(error.message)}</p>`;
+    } finally {
+        setBusy(false);
+    }
+}
+
+/* ============================ metrics ============================ */
+
+function resetMetrics() {
+    ['mReduced', 'mVolume', 'mTime', 'mParticipants', 'mGroups', 'mCash'].forEach((id) => {
+        $(id).textContent = '\u2014';
+    });
+    ['mReducedSub', 'mVolumeSub', 'mParticipantsSub', 'mGroupsSub', 'mCashSub'].forEach((id) => {
+        $(id).textContent = '\u2014';
+    });
+    $('algorithmUsed').textContent = 'awaiting input';
+    $('optimalBadge').classList.add('hidden');
+    $('fallbackBadge').classList.add('hidden');
+    $('optEdgeCount').textContent = '0 edges';
+}
+
+function renderMetrics(plan) {
+    const eliminated = plan.initialTransactionCount - plan.optimizedTransactionCount;
+    const volumeSaved = Number(plan.totalCashFlowBefore) - Number(plan.totalCashFlowAfter);
+    const micros = (plan.executionTimeNs / 1000).toLocaleString('en-US', {
+        minimumFractionDigits: 2, maximumFractionDigits: 2,
+    });
+
+    $('algorithmUsed').textContent = plan.algorithmUsed;
+
+    $('mReduced').textContent = eliminated;
+    $('mReducedSub').textContent =
+        `${plan.initialTransactionCount} \u2192 ${plan.optimizedTransactionCount} `
+        + `(${plan.reductionPercentage}%)`;
+
+    $('mVolume').textContent = money(volumeSaved);
+    $('mVolumeSub').textContent = `${money(plan.totalCashFlowAfter)} remaining`;
+
+    $('mTime').textContent = micros;
+
+    $('mParticipants').textContent = plan.participantCount;
+    $('mParticipantsSub').textContent =
+        `${Object.keys(plan.netBalances || {}).length} named`;
+
+    // Both engines report a group count, so show it either way. Only the lower bound is
+// specific to the exact solver, since greedy merely infers it from its own round count.
+$('mGroups').textContent = plan.independentSubsetCount;
+$('mGroupsSub').textContent = plan.optimalTransactionLowerBound >= 0
+    ? `min = N\u2212k = ${plan.optimalTransactionLowerBound}`
+    : 'beyond exact solver reach';
+
+    $('mCash').textContent = money(plan.totalCashFlowAfter);
+    $('mCashSub').textContent = `of ${money(plan.totalCashFlowBefore)} originally`;
+
+    const optimal = $('optimalBadge');
+    optimal.classList.remove('hidden');
+    if (plan.isMathematicallyOptimal) {
+        optimal.className = 'rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase ' +
+            'tracking-wider border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
+        optimal.textContent = 'provably optimal';
+    } else {
+        optimal.className = 'rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase ' +
+            'tracking-wider border-slate-600 bg-ink-800 text-slate-400';
+        optimal.textContent = 'optimality unproven';
+    }
+
+    $('fallbackBadge').classList.toggle('hidden', !plan.isOptimalFallback);
+
+    $('optEdgeCount').textContent = `${plan.settlements.length} edge(s)`;
+    $('rawEdgeCount').textContent = `${state.transactions.length} edge(s)`;
+}
+
+/* ============================ receipt ============================ */
+
+function switchTab(tab, button) {
+    ['receipt', 'net', 'bench'].forEach((name) => {
+        $('tab-' + name).classList.toggle('hidden', name !== tab);
+    });
+    document.querySelectorAll('.tab-btn').forEach((btn) => {
+        btn.dataset.active = String(btn.dataset.tab === tab);
+    });
+}
+
+function toggleReceiptExpand() {
+    const items = document.querySelectorAll('[data-receipt-row]');
+    const anyCollapsed = Array.from(items).some((el) => el.classList.contains('hidden'));
+    items.forEach((el) => el.classList.toggle('hidden', !anyCollapsed));
+}
+
+function renderReceipt(plan) {
+    const container = $('receiptList');
+    // Tolerates the initial/cleared state, where there is no plan to render yet.
+    const settlements = (plan && plan.settlements) || [];
+
+    if (settlements.length === 0) {
+        container.innerHTML = `
+            <div class="rounded-xl border border-ink-700 bg-ink-900/40 p-6 text-center">
+                <p class="font-mono text-2xl text-slate-600">${plan ? '0' : '&mdash;'}</p>
+                <p class="mt-2 text-sm font-semibold text-slate-300">
+                    ${plan ? 'No payments are required' : 'No payment plan yet'}
+                </p>
+                <p class="mt-1 text-xs text-slate-500">
+                    ${plan
+                        ? 'Every participant already nets to zero &mdash; this ledger is already square.'
+                        : 'Add obligations or load a sample graph, then run the optimizer.'}
+                </p>
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = settlements.map((s, i) => `
+        <div data-receipt-row class="rounded-lg border border-ink-700 bg-ink-900/60">
+            <div class="flex items-center gap-3 px-4 py-3">
+                <span class="grid h-7 w-7 shrink-0 place-items-center rounded-md
+                             bg-accent/15 font-mono text-xs font-bold text-accent">${i + 1}</span>
+                <div class="min-w-0 flex-1">
+                    <div class="font-mono text-sm">
+                        <span class="font-bold text-red-400">${esc(s.from)}</span>
+                        <span class="mx-2 text-slate-600">&rarr;</span>
+                        <span class="font-bold text-green-400">${esc(s.to)}</span>
+                    </div>
+                    <div class="mt-0.5 font-mono text-[11px] text-slate-500">
+                        pays ${money(s.amount)}
+                    </div>
+                </div>
+                <input type="checkbox" class="h-5 w-5 shrink-0 cursor-pointer accent-emerald-500"
+                       onchange="this.closest('[data-receipt-row]')
+                                    .classList.toggle('opacity-40', this.checked)">
+            </div>
+        </div>`).join('');
+}
+
+function renderNetTable(plan) {
+    const entries = Object.entries((plan && plan.netBalances) || {});
+    entries.sort((a, b) => Number(b[1]) - Number(a[1]));
+
+    $('netTable').innerHTML = `
+        <table class="w-full text-left text-sm">
+            <thead>
+                <tr class="border-b border-ink-700 text-[11px] uppercase tracking-wider text-slate-500">
+                    <th class="pb-2 font-semibold">Participant</th>
+                    <th class="pb-2 text-right font-semibold">Net Position</th>
+                    <th class="pb-2 text-right font-semibold">Role</th>
+                </tr>
+            </thead>
+            <tbody class="font-mono">
+                ${entries.map(([name, value]) => {
+                    const n = Number(value);
+                    const role = n > 0 ? 'Creditor' : (n < 0 ? 'Debtor' : 'Settled');
+                    const cls = n > 0 ? 'text-green-400' : (n < 0 ? 'text-red-400' : 'text-slate-500');
+                    return `<tr class="border-b border-ink-800">
+                        <td class="py-2 text-slate-200">${esc(name)}</td>
+                        <td class="py-2 text-right ${cls} tabular-nums">${money(n)}</td>
+                        <td class="py-2 text-right text-slate-500">${role}</td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>`;
+}
+
+/* ============================ benchmark panel ============================ */
+
+function renderBenchmark(result) {
+    const greedy = result.greedy;
+    const optimal = result.optimalSubset;
+
+    const row = (engine) => `
+        <div class="rounded-lg border border-ink-700 bg-ink-900/60 p-3">
+            <div class="mb-2 flex items-center justify-between gap-2">
+                <span class="truncate font-mono text-[11px] text-slate-400"
+                      title="${esc(engine.algorithmUsed)}">${esc(engine.algorithmUsed)}</span>
+                ${engine.mathematicallyOptimal
+                    ? '<span class="shrink-0 rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase text-emerald-300">optimal</span>'
+                    : '<span class="shrink-0 rounded border border-ink-600 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-500">unproven</span>'}
+            </div>
+            <div class="grid grid-cols-3 gap-2 font-mono text-xs">
+                <div>
+                    <div class="text-[9px] uppercase tracking-wider text-slate-600">Transfers</div>
+                    <div class="text-slate-100 tabular-nums">${engine.optimizedTransactionCount}</div>
+                </div>
+                <div>
+                    <div class="text-[9px] uppercase tracking-wider text-slate-600">Micros</div>
+                    <div class="text-slate-100 tabular-nums">${(engine.executionTimeNs / 1000).toFixed(2)}</div>
+                </div>
+                <div>
+                    <div class="text-[9px] uppercase tracking-wider text-slate-600">Cash Out</div>
+                    <div class="text-slate-100 tabular-nums">${money(engine.totalCashFlowAfter)}</div>
+                </div>
+            </div>
+        </div>`;
+
+    $('benchPanel').innerHTML = `
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div class="stat-tile">
+                <div class="stat-label">Participants</div>
+                <div class="stat-value text-slate-100">${result.participantCount}</div>
+            </div>
+            <div class="stat-tile">
+                <div class="stat-label">Debtors / Creditors</div>
+                <div class="stat-value text-slate-100">${result.netDebtorCount} / ${result.netCreditorCount}</div>
+            </div>
+            <div class="stat-tile">
+                <div class="stat-label">Already Settled</div>
+                <div class="stat-value text-slate-100">${result.settledParticipantCount}</div>
+            </div>
+            <div class="stat-tile">
+                <div class="stat-label">Speed-up</div>
+                <div class="stat-value text-accent">${result.speedupRatio}&times;</div>
+                <div class="mt-1 truncate font-mono text-[10px] text-slate-500"
+                     title="${esc(result.fastestEngine)}">${esc(result.fastestEngine)}</div>
+            </div>
+        </div>
+
+        ${result.optimalProvedStrictlyFewer ? `
+        <div class="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+            <p class="text-sm text-emerald-300">
+                Bitmask DP eliminated
+                <span class="font-mono font-bold">${result.transactionCountDelta}</span>
+                transfer(s) that the greedy heuristic could not see
+                (${money(result.cashFlowDelta)} less cash in motion).
+            </p>
+        </div>` : ''}
+
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">${row(greedy)}${row(optimal)}</div>
+
+        <p class="rounded-lg border border-ink-700 bg-ink-900/60 p-3 text-xs leading-relaxed text-slate-400">
+            ${esc(result.notes)}
+        </p>`;
+}
+
+/* ============================ copy ============================ */
+
+async function copyPlan() {
+    if (!state.plan) return;
+    if (state.plan.settlements.length === 0) return;
+
+    const header =
+        `SettleX payment plan (${state.plan.algorithmUsed})\n` +
+        `${state.plan.optimizedTransactionCount} transfer(s), down from ` +
+        `${state.plan.initialTransactionCount} obligation(s) ` +
+        `(${state.plan.reductionPercentage}% reduction)\n` +
+        `Total cash: ${money(state.plan.totalCashFlowAfter)}\n` +
+        '-'.repeat(52) + '\n';
+
+    const body = state.plan.settlements
+        .map((s, i) => `${String(i + 1).padStart(2, ' ')}. ${s.from} -> ${s.to}   ${money(s.amount)}`)
+        .join('\n');
+
+    const text = header + body;
+
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch (_) {
+        // Clipboard API is unavailable over plain HTTP on some browsers; fall back to a
+        // hidden textarea so the button still works.
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        try { document.execCommand('copy'); } catch (__) { /* nothing else to try */ }
+        document.body.removeChild(area);
+    }
+
+    const label = $('copyLabel');
+    label.textContent = 'Copied \u2713';
+    setTimeout(() => { label.textContent = 'Copy Payment Plan'; }, 1800);
+}
+
+/* ============================ graphs ============================ */
+
+const GRAPH_OPTIONS = {
+    autoResize: true,
+    height: '100%',
+    width: '100%',
+    physics: {
+        enabled: true,
+        stabilization: { iterations: 220, fit: true },
+        barnesHut: { gravitationalConstant: -9000, springLength: 165, springConstant: 0.045 },
+        minVelocity: 0.6,
+    },
+    interaction: { hover: true, tooltipDelay: 120, navigationButtons: false, keyboard: false },
+    nodes: {
+        shape: 'dot',
+        size: 26,
+        borderWidth: 3,
+        font: { color: '#e2e8f0', size: 14, face: 'Inter, system-ui, sans-serif' },
+    },
+    edges: {
+        arrows: { to: { enabled: true, scaleFactor: 0.75 } },
+        width: 2,
+        smooth: { enabled: true, type: 'dynamic' },
+        font: { color: '#94a3b8', size: 11, strokeWidth: 4, strokeColor: '#0b0f18', align: 'middle' },
+    },
+};
+
+/** Builds a vis-network node, coloured by the sign of the participant's net position. */
+function buildNode(name, net) {
+    const creditor = net > 0;
+    const debtor = net < 0;
+    const color = creditor ? '#22c55e' : (debtor ? '#ef4444' : '#64748b');
+
+    return {
+        id: name,
+        label: `${name}\n${money(net)}`,
+        color: {
+            background: creditor ? 'rgba(34,197,94,0.22)'
+                : (debtor ? 'rgba(239,68,68,0.22)' : 'rgba(100,116,139,0.18)'),
+            border: color,
+            highlight: { background: color, border: '#ffffff' },
+        },
+        borderWidth: 3,
+        // Size scales with exposure so the eye lands on the biggest balances first.
+        value: Math.max(1, Math.abs(net) / 10),
+        size: 18 + Math.min(26, Math.abs(net) / 12),
+        title: `${name}\nnet ${money(net)}`,
+    };
+}
+
+/** A money-moving edge. `settled` picks the green palette instead of the red one. */
+function buildEdge(id, from, to, amount, settled) {
+    return {
+        id,
+        from,
+        to,
+        label: money(amount),
+        color: settled
+            ? { color: 'rgba(34,197,94,0.75)', highlight: '#22c55e' }
+            : { color: 'rgba(239,68,68,0.55)', highlight: '#ef4444' },
+    };
+}
+
+/** Left pane: the untouched obligations, where no netting has been applied yet. */
+function datasetsForObligations(transactions) {
+    const names = [...new Set(transactions.flatMap((t) => [t.debtor, t.creditor]))];
+    return {
+        nodes: names.map((name) => buildNode(name, 0)),
+        edges: transactions.map((t, i) => buildEdge(`t${i}`, t.debtor, t.creditor, t.amount, false)),
+    };
+}
+
+/**
+ * Right pane: the payment plan over the true net positions.
+ *
+ * Nodes come from netBalances rather than from the transfers alone, so a participant who
+ * nets to zero still appears in the graph instead of silently vanishing from it.
+ */
+function datasetsForSettlements(settlements, netBalances) {
+    const balances = netBalances || {};
+    const names = new Set(Object.keys(balances));
+    settlements.forEach((s) => { names.add(s.from); names.add(s.to); });
+
+    return {
+        nodes: [...names].map((name) => buildNode(name, Number(balances[name] ?? 0))),
+        edges: settlements.map((s, i) => buildEdge(`s${i}`, s.from, s.to, s.amount, true)),
+    };
+}
+
+function mountNetwork(slotId, key, datasets) {
+    const host = $(slotId);
+
+    if (state.networks[key]) { state.networks[key].destroy(); state.networks[key] = null; }
+    host.innerHTML = '';
+
+    if (datasets.nodes.length === 0) {
+        host.innerHTML =
+            '<div class="grid h-full place-items-center px-6 text-center text-xs text-slate-600">' +
+            'No obligations yet</div>';
+        return;
+    }
+
+    state.networks[key] = new vis.Network(host,
+        new vis.DataSet(datasets.nodes), new vis.DataSet(datasets.edges), GRAPH_OPTIONS);
+}
+
+function drawRaw() {
+    mountNetwork('rawCanvas', 'raw', datasetsForObligations(state.transactions));
+}
+
+function drawOptimized(plan) {
+    mountNetwork('optCanvas', 'opt',
+        datasetsForSettlements(plan.settlements, plan.netBalances));
+}
+
+/* ============================ bootstrap ============================ */
+
+(async function init() {
+    selectStrategy('GREEDY');
+    renderLedger();
+    resetMetrics();
+    // Paint both panes straight away so an empty session reads as "not loaded yet" rather
+    // than as two broken canvases.
+    drawRaw();
+    drawOptimized({ settlements: [], netBalances: {} });
+
+    try {
+        const samples = await getJson(API.samples);
+        state.sampleCache = samples;
+
+        const select = $('sampleSelect');
+        samples.forEach((sample) => {
+            const option = document.createElement('option');
+            option.value = sample.id;
+            option.textContent = sample.name;
+            select.appendChild(option);
+        });
+
+        $('engineBadge').textContent = 'API ready \u00b7 ' + samples.length + ' samples';
+    } catch (error) {
+        $('engineBadge').textContent = 'API unreachable';
+        showAlert('Could not load samples',
+            error.message + ' — is the API reachable at ' + API.samples + ' ?', []);
+    }
+
+    // Guard against a CDN hiccup leaving a blank page with no explanation at all.
+    if (typeof vis === 'undefined') {
+        showAlert('Graph library unavailable',
+            'vis-network could not be loaded from the CDN. The metrics and receipt still work.', []);
+    }
+})();
+</script>
+</body>
+</html>

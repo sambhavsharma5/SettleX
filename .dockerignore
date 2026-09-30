@@ -1,0 +1,9 @@
+target/
+.idea/
+.git/
+.gitignore
+.vscode/
+*.iml
+*.log
+README.md
+docker-compose.yml
